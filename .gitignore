@@ -1,2 +1,10 @@
 dist/
 *.dvpltmp
+*.bin
+*.exe
+*.out
+*.test
+*.so
+*.dll
+*.dylib
+/dvpl
