@@ -25,4 +25,6 @@ dvpl input.txt # tự nén; file có đuôi .dvpl được tự giải nén
 | `DVPL_LEVEL` | Mức nén `0`–`2`; cờ `-level` được ưu tiên |
 | `DVPL_WORKERS` | Số worker dương; cờ `-workers` được ưu tiên |
 
+Khi giải nén, type `0` là dữ liệu thô, type `1` và `2` là khối LZ4, type `4` là một khối LZ4 có header 28 byte. Type `4` bỏ qua CRC của payload và hiện chỉ hỗ trợ đọc; chương trình không tạo file type `4`.
+
 Mã thoát: `0` thành công, `1` có file lỗi, `2` lỗi cấu hình/đối số, `130` khi bị ngắt. Mặc định chương trình giữ file gốc. Symlink bị bỏ qua. Nhãn type trong footer chưa được xác minh bằng file game thật.

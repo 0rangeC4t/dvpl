@@ -2,8 +2,11 @@ package dvpl
 
 import (
 	"encoding/binary"
+	"hash/crc32"
 	"math/rand"
 	"testing"
+
+	"dvpl/internal/codec"
 )
 
 func footer(f []byte) []byte { return f[len(f)-footerSize:] }
@@ -35,6 +38,45 @@ func TestRoundTrip(t *testing.T) {
 				t.Fatalf("round trip mismatch")
 			}
 		})
+	}
+}
+
+func TestType4DecodeIgnoresCRC(t *testing.T) {
+	for _, name := range []string{"CountingTankInTable.txt.dvpl", "CountingTankInTable.txt@2x.dvpl"} {
+		t.Run(name, func(t *testing.T) {
+			original := bytesRepeat("counting tank table ", 80)
+			compressed, _, err := codec.Compress(original, LZ4)
+			if err != nil {
+				t.Fatal(err)
+			}
+			payload := make([]byte, 28+len(compressed))
+			binary.LittleEndian.PutUint32(payload[0:4], 1)
+			binary.LittleEndian.PutUint32(payload[4:8], 28)
+			binary.LittleEndian.PutUint32(payload[16:20], uint32(len(compressed)))
+			binary.LittleEndian.PutUint32(payload[24:28], uint32(len(original)))
+			copy(payload[28:], compressed)
+			file := make([]byte, len(payload)+footerSize)
+			copy(file, payload)
+			f := footer(file)
+			binary.LittleEndian.PutUint32(f[0:4], uint32(len(original)))
+			binary.LittleEndian.PutUint32(f[4:8], uint32(len(payload)))
+			binary.LittleEndian.PutUint32(f[8:12], crc32.ChecksumIEEE(payload)^1)
+			binary.LittleEndian.PutUint32(f[12:16], 4)
+			copy(f[16:20], "DVPL")
+			got, err := Unpack(file, false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(got) != string(original) {
+				t.Fatal("type 4 output mismatch")
+			}
+		})
+	}
+}
+
+func TestType4WriteUnsupported(t *testing.T) {
+	if _, err := Pack([]byte("data"), Kind(4), false); err == nil || err.Error() != "write type 4 unsupported" {
+		t.Fatalf("got %v, want write type 4 unsupported", err)
 	}
 }
 
@@ -73,7 +115,7 @@ func TestMalformedFooters(t *testing.T) {
 		{"crc", func(b []byte) { footer(b)[8] ^= 1 }},
 		{"packed size", func(b []byte) { binary.LittleEndian.PutUint32(footer(b)[4:8], 99) }},
 		{"original size", func(b []byte) { binary.LittleEndian.PutUint32(footer(b)[0:4], 99) }},
-		{"unknown type", func(b []byte) { binary.LittleEndian.PutUint32(footer(b)[12:16], 3) }},
+		{"unknown type", func(b []byte) { binary.LittleEndian.PutUint32(footer(b)[12:16], 3); footer(b)[8] ^= 1 }},
 		{"oversize original", func(b []byte) { binary.LittleEndian.PutUint32(footer(b)[0:4], maxSize+1) }},
 	}
 	for _, tt := range tests {

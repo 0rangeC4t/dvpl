@@ -32,9 +32,14 @@ func mapKind(kind codec.Kind, label uint32, reading bool) (codec.Kind, uint32, e
 			return codec.LZ4, 1, nil
 		case 2:
 			return codec.LZ4HC, 2, nil
+		case 4:
+			return codec.Kind(4), 4, nil
 		default:
 			return 0, 0, fmt.Errorf("unsupported DVPL type %d", label)
 		}
+	}
+	if kind == codec.Kind(4) {
+		return 0, 0, errors.New("write type 4 unsupported")
 	}
 	switch kind {
 	case codec.None:
@@ -104,12 +109,15 @@ func Unpack(file []byte, trustCRC bool) ([]byte, error) {
 	if original > maxSize {
 		return nil, errors.New("DVPL original size exceeds limit")
 	}
-	if !trustCRC && crc32.ChecksumIEEE(payload) != checksum {
-		return nil, errors.New("DVPL CRC mismatch")
-	}
 	kind, _, err := mapKind(0, label, true)
 	if err != nil {
 		return nil, err
+	}
+	if label != 4 && !trustCRC && crc32.ChecksumIEEE(payload) != checksum {
+		return nil, errors.New("DVPL CRC mismatch")
+	}
+	if label == 4 {
+		return unpackType4(payload, original)
 	}
 	if kind == codec.None {
 		if original != packed {
@@ -124,6 +132,37 @@ func Unpack(file []byte, trustCRC bool) ([]byte, error) {
 	}
 	if n != int(original) {
 		return nil, fmt.Errorf("DVPL output size mismatch: got %d, want %d", n, original)
+	}
+	return dst, nil
+}
+
+func unpackType4(payload []byte, original uint32) ([]byte, error) {
+	if len(payload) < 28 {
+		return nil, errors.New("type 4 payload shorter than header")
+	}
+	nblk := binary.LittleEndian.Uint32(payload[0:4])
+	hsz := binary.LittleEndian.Uint32(payload[4:8])
+	csz := binary.LittleEndian.Uint32(payload[16:20])
+	usz := binary.LittleEndian.Uint32(payload[24:28])
+	if nblk != 1 {
+		return nil, fmt.Errorf("type 4 block count mismatch: got %d, want 1", nblk)
+	}
+	if hsz != 28 {
+		return nil, fmt.Errorf("type 4 header size mismatch: got %d, want 28", hsz)
+	}
+	if usz != original {
+		return nil, fmt.Errorf("type 4 original size mismatch: got %d, want %d", usz, original)
+	}
+	if uint64(hsz)+uint64(csz) != uint64(len(payload)) {
+		return nil, errors.New("type 4 compressed size mismatch")
+	}
+	dst := make([]byte, int(usz))
+	n, err := codec.Decompress(payload[hsz:hsz+csz], dst)
+	if err != nil {
+		return nil, fmt.Errorf("LZ4 decode: %w", err)
+	}
+	if n != int(usz) {
+		return nil, fmt.Errorf("DVPL output size mismatch: got %d, want %d", n, usz)
 	}
 	return dst, nil
 }
