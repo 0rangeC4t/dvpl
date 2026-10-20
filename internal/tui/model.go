@@ -29,6 +29,7 @@ const (
 )
 
 type Model struct {
+	initialized                      bool
 	screen                           screen
 	mode                             core.Mode
 	focus                            int
@@ -64,7 +65,7 @@ func NewModel() Model {
 	}
 	inputs[2].SetValue("2")
 	inputs[3].SetValue("0")
-	return Model{inputs: inputs, progress: progress.New(progress.WithDefaultGradient()), errorViewport: viewport.New(72, 6), width: 80}
+	return Model{initialized: true, inputs: inputs, progress: progress.New(progress.WithDefaultGradient()), errorViewport: viewport.New(72, 6), width: 80}
 }
 
 func (m Model) Init() tea.Cmd { return textinput.Blink }
@@ -102,6 +103,12 @@ func tick() tea.Cmd {
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if !m.initialized {
+		m = NewModel()
+	}
+	if m.focus < 0 || m.focus >= 9 {
+		m.focus = 0
+	}
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
@@ -180,7 +187,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.progress = updated.(progress.Model)
 		return m, cmd
 	}
-	if m.screen == formScreen {
+	if m.screen == formScreen && m.focus >= 1 && m.focus <= len(m.inputs) {
 		var cmd tea.Cmd
 		idx := m.focus - 1
 		m.inputs[idx], cmd = m.inputs[idx].Update(msg)
@@ -436,7 +443,11 @@ func humanBytes(n int64) string {
 		div *= unit
 		exp++
 	}
-	return fmt.Sprintf("%.1f %ciB", float64(n)/float64(div), "KMGTPE"[exp])
+	units := "KMGTPEZY"
+	if exp >= len(units) {
+		exp = len(units) - 1
+	}
+	return fmt.Sprintf("%.1f %ciB", float64(n)/float64(div), units[exp])
 }
 
 // Run starts the terminal program and waits for any canceled core worker to stop.

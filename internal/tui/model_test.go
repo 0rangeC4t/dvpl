@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"dvpl/internal/core"
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 func TestFormBuildsCoreJob(t *testing.T) {
@@ -82,5 +83,52 @@ func TestProgressAndHumanBytes(t *testing.T) {
 	}
 	if got := humanBytes(2048); got != "2.0 KiB" {
 		t.Fatalf("humanBytes=%q", got)
+	}
+	_ = humanBytes(int64(^uint64(0) >> 1))
+}
+
+func TestInvalidFocusIsResetBeforeUpdate(t *testing.T) {
+	m := NewModel()
+	m.focus = -1
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	if got := updated.(Model).focus; got < 0 || got >= 9 {
+		t.Fatalf("focus=%d outside selectable range", got)
+	}
+}
+
+func TestUpdateBoundsAcrossScreensAndKeys(t *testing.T) {
+	keys := []tea.KeyMsg{
+		{Type: tea.KeyUp},
+		{Type: tea.KeyDown},
+		{Type: tea.KeyLeft},
+		{Type: tea.KeyRight},
+		{Type: tea.KeyTab},
+		{Type: tea.KeyShiftTab},
+		{Type: tea.KeyEnter},
+		{Type: tea.KeyEsc},
+		{Type: tea.KeyRunes, Runes: []rune{'q'}},
+	}
+	screens := []screen{formScreen, progressScreen, resultScreen}
+	for _, screen := range screens {
+		t.Run(fmt.Sprintf("screen-%d", screen), func(t *testing.T) {
+			m := NewModel()
+			updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+			m = updated.(Model)
+			for _, key := range keys {
+				m.screen = screen
+				updated, _ = m.Update(key)
+				m = updated.(Model)
+			}
+		})
+	}
+}
+
+func TestZeroModelWindowSizeAndKeysDoNotPanic(t *testing.T) {
+	var m Model
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+	for _, key := range []tea.KeyMsg{{Type: tea.KeyUp}, {Type: tea.KeyDown}, {Type: tea.KeyLeft}, {Type: tea.KeyRight}, {Type: tea.KeyTab}, {Type: tea.KeyShiftTab}, {Type: tea.KeyEnter}, {Type: tea.KeyEsc}, {Type: tea.KeyRunes, Runes: []rune{'q'}}} {
+		updated, _ = m.Update(key)
+		m = updated.(Model)
 	}
 }
