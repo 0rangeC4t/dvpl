@@ -10,7 +10,9 @@ dvpl input.txt # tự nén; file có đuôi .dvpl được tự giải nén
 dvpl tui      # giao diện tương tác trên terminal
 ```
 
-Không truyền tham số trong terminal tương tác cũng mở TUI. TUI cho chọn nén/giải nén, nhập nguồn và thư mục đích, đặt level/workers và các tùy chọn giữ/xóa file gốc, force, trust-crc. Màn hình tiến trình không in từng file thành công; thanh tiến độ, bộ đếm, tốc độ và thời gian được cập nhật trong giao diện. Khung lỗi cuộn được giữ 500 lỗi gần nhất; màn hình kết quả có tổng byte và toàn bộ danh sách lỗi cuộn được. Nhấn `s` ở màn hình kết quả để lưu danh sách vào `errors.log`. Dùng Tab/mũi tên để di chuyển, Enter để chọn, Esc để quay lại/hủy tác vụ, `q` hoặc Ctrl+C để thoát. Các lệnh `c`/`d` và `compress`/`decompress` vẫn dùng được như trước.
+Không truyền tham số trong terminal tương tác cũng mở TUI. TUI cho chọn nén/giải nén, nhập nguồn và thư mục đích, đặt level `0/1/2` bằng trái/phải, `+/-` hoặc gõ số. Workers mặc định theo số CPU và chọn được từ `1` đến `64` bằng cách gõ số hoặc `+/-`. Các tùy chọn giữ/xóa file gốc, force và trust-crc cũng có trong form. Màn hình tiến trình không in từng file thành công; thanh tiến độ, bộ đếm, tốc độ và thời gian được cập nhật trong giao diện. Khung lỗi cuộn được giữ 500 lỗi gần nhất; màn hình kết quả có tổng byte và toàn bộ danh sách lỗi cuộn được. Nhấn `s` ở màn hình kết quả để lưu danh sách vào `errors.log`. Giao diện mặc định tiếng Việt; chạy `dvpl tui --lang en`, đặt `DVPL_LANG=en`, hoặc nhấn `L` trong form để đổi tiếng Anh. Dùng Tab/mũi tên để di chuyển, Enter để chọn, Esc để quay lại/hủy tác vụ, `q` hoặc Ctrl+C để thoát. Các lệnh `c`/`d` và `compress`/`decompress` vẫn dùng được như trước.
+
+Để thêm ngôn ngữ, tạo `internal/tui/lang/<mã>.json` với cùng tập key như `vi.json` và `en.json`. Các file JSON được nhúng tự động. Thêm mã ngôn ngữ vào `lang.Set`/`lang.Other` và phần kiểm tra `--lang`/`DVPL_LANG` trong CLI; cập nhật test đối chiếu key để kiểm tra file mới.
 
 | Cờ | Mặc định | Ý nghĩa |
 |---|---:|---|

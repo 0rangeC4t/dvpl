@@ -25,6 +25,24 @@ func TestParseArgsFlagsAndEnvironment(t *testing.T) {
 	}
 }
 
+func TestParseTUILanguage(t *testing.T) {
+	env := func(k string) string {
+		if k == "DVPL_LANG" {
+			return "en"
+		}
+		return ""
+	}
+	if got, err := parseTUILanguage(nil, env); err != nil || got != "en" {
+		t.Fatalf("env language=%q err=%v", got, err)
+	}
+	if got, err := parseTUILanguage([]string{"--lang", "vi"}, env); err != nil || got != "vi" {
+		t.Fatalf("flag language=%q err=%v", got, err)
+	}
+	if _, err := parseTUILanguage([]string{"--lang", "fr"}, env); err == nil {
+		t.Fatal("unsupported language should fail")
+	}
+}
+
 func invokeRun(t *testing.T, args ...string) (int, string) {
 	t.Helper()
 	logs := t.TempDir()

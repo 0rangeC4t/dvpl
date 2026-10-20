@@ -7,11 +7,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
 	"dvpl/internal/codec"
 	"dvpl/internal/core"
+	"dvpl/internal/tui/lang"
 
 	"github.com/charmbracelet/bubbles/progress"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -33,7 +36,9 @@ type Model struct {
 	screen                           screen
 	mode                             core.Mode
 	focus                            int
-	inputs                           [4]textinput.Model // source, output, level, workers
+	inputs                           [3]textinput.Model // source, output, workers
+	level                            int
+	locale                           string
 	forced, deleteOriginal, trustCRC bool
 	job                              core.Job
 	cancel                           context.CancelFunc
@@ -49,13 +54,14 @@ type Model struct {
 	started                          time.Time
 	progress                         progress.Model
 	err                              error
+	formError                        string
 	width                            int
 	height                           int
 }
 
 func NewModel() Model {
-	inputs := [4]textinput.Model{}
-	placeholders := []string{"Đường dẫn nguồn", "Thư mục đích (để trống = cạnh nguồn)", "2", "0 = tự chọn"}
+	inputs := [3]textinput.Model{}
+	placeholders := []string{lang.T("source_placeholder"), lang.T("destination_placeholder"), lang.T("workers_placeholder")}
 	for i := range inputs {
 		inputs[i] = textinput.New()
 		inputs[i].Placeholder = placeholders[i]
@@ -63,9 +69,9 @@ func NewModel() Model {
 			inputs[i].Focus()
 		}
 	}
-	inputs[2].SetValue("2")
-	inputs[3].SetValue("0")
-	return Model{initialized: true, inputs: inputs, progress: progress.New(progress.WithDefaultGradient()), errorViewport: viewport.New(72, 6), width: 80}
+	workers := min(64, max(1, runtime.NumCPU()))
+	inputs[2].SetValue(strconv.Itoa(workers))
+	return Model{initialized: true, inputs: inputs, level: 2, locale: lang.Current(), progress: progress.New(progress.WithDefaultGradient()), errorViewport: viewport.New(72, 6), width: 80}
 }
 
 func (m Model) Init() tea.Cmd { return textinput.Blink }
@@ -116,7 +122,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.progress.Width = max(10, msg.Width-8)
 		m.resizeErrorViewport()
 	case tea.KeyMsg:
-		if msg.String() == "ctrl+c" || (msg.String() == "q" && !(m.screen == formScreen && m.focus >= 1 && m.focus <= 4)) {
+		if msg.String() == "ctrl+c" || (msg.String() == "q" && !(m.screen == formScreen && isTextFocus(m.focus))) {
 			if m.cancel != nil {
 				m.cancel()
 			}
@@ -158,7 +164,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.processed++
 				m.summary = ev.Summary
 				if ev.Type == core.FileError {
-					m.addFailure(fmt.Sprintf("%s: %v", ev.Path, ev.Err))
+					m.addFailure(lang.T("failure_line", ev.Path, ev.Err))
 					refreshErrors = true
 				}
 			case core.Finished:
@@ -187,21 +193,76 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.progress = updated.(progress.Model)
 		return m, cmd
 	}
-	if m.screen == formScreen && m.focus >= 1 && m.focus <= len(m.inputs) {
-		var cmd tea.Cmd
-		idx := m.focus - 1
-		m.inputs[idx], cmd = m.inputs[idx].Update(msg)
-		return m, cmd
+	if m.screen == formScreen {
+		if idx, ok := inputIndex(m.focus); ok {
+			var cmd tea.Cmd
+			m.inputs[idx], cmd = m.inputs[idx].Update(msg)
+			if m.focus == 4 {
+				m.validateWorkers()
+			}
+			return m, cmd
+		}
 	}
 	return m, nil
 }
 
+func inputIndex(focus int) (int, bool) {
+	switch focus {
+	case 1:
+		return 0, true
+	case 2:
+		return 1, true
+	case 4:
+		return 2, true
+	default:
+		return 0, false
+	}
+}
+
+func isTextFocus(focus int) bool { return focus == 1 || focus == 2 || focus == 4 }
+
 func (m *Model) updateFormKey(msg tea.KeyMsg) tea.Cmd {
 	key := msg.String()
-	if m.focus >= 1 && m.focus <= 4 && (key == "left" || key == "right") {
-		idx := m.focus - 1
+	if strings.EqualFold(key, "l") && !isTextFocus(m.focus) {
+		m.locale = lang.Other()
+		lang.Set(m.locale)
+		m.inputs[0].Placeholder = lang.T("source_placeholder")
+		m.inputs[1].Placeholder = lang.T("destination_placeholder")
+		m.inputs[2].Placeholder = lang.T("workers_placeholder")
+		return nil
+	}
+	if m.focus == 3 {
+		switch key {
+		case "left", "-":
+			m.level = (m.level + 2) % 3
+			return nil
+		case "right", "+":
+			m.level = (m.level + 1) % 3
+			return nil
+		case "0", "1", "2":
+			m.level = int(key[0] - '0')
+			return nil
+		}
+	}
+	if m.focus == 4 {
+		switch key {
+		case "left", "-":
+			m.adjustWorkers(-1)
+			m.refocusInput()
+			return nil
+		case "right", "+":
+			m.adjustWorkers(1)
+			m.refocusInput()
+			return nil
+		}
+	}
+	if isTextFocus(m.focus) && key != "tab" && key != "down" && key != "up" && key != "shift+tab" && key != "enter" && key != "esc" {
+		idx, _ := inputIndex(m.focus)
 		var cmd tea.Cmd
 		m.inputs[idx], cmd = m.inputs[idx].Update(msg)
+		if m.focus == 4 {
+			m.validateWorkers()
+		}
 		return cmd
 	}
 	switch key {
@@ -264,10 +325,36 @@ func (m *Model) updateFormKey(msg tea.KeyMsg) tea.Cmd {
 	for i := range m.inputs {
 		m.inputs[i].Blur()
 	}
-	if m.focus >= 1 && m.focus <= 4 {
-		return m.inputs[m.focus-1].Focus()
+	if idx, ok := inputIndex(m.focus); ok {
+		return m.inputs[idx].Focus()
 	}
 	return nil
+}
+
+func (m *Model) refocusInput() {
+	if idx, ok := inputIndex(m.focus); ok {
+		m.inputs[idx].Focus()
+	}
+}
+
+func (m *Model) adjustWorkers(delta int) {
+	current, err := strconv.Atoi(strings.TrimSpace(m.inputs[2].Value()))
+	if err != nil {
+		current = min(64, max(1, runtime.NumCPU()))
+	}
+	current = min(64, max(1, current+delta))
+	m.inputs[2].SetValue(strconv.Itoa(current))
+	m.validateWorkers()
+}
+
+func (m *Model) validateWorkers() bool {
+	workers, err := strconv.Atoi(strings.TrimSpace(m.inputs[2].Value()))
+	if err != nil || workers < 1 || workers > 64 {
+		m.formError = "workers_invalid"
+		return false
+	}
+	m.formError = ""
+	return true
 }
 
 func (m *Model) start() {
@@ -275,24 +362,24 @@ func (m *Model) start() {
 	m.summary = core.Summary{}
 	m.failures = nil
 	m.recentFailures, m.failureCount, m.saveMessage = nil, 0, ""
-	m.recentFailures, m.failureCount, m.saveMessage = nil, 0, ""
 	m.err = nil
+	m.formError = ""
 	source := strings.TrimSpace(m.inputs[0].Value())
 	if source == "" {
-		m.err = errors.New("cần nhập đường dẫn nguồn")
+		m.formError = "source_required"
 		return
 	}
-	var level, workers int
-	if _, err := fmt.Sscanf(m.inputs[2].Value(), "%d", &level); err != nil || level < 0 || level > 2 {
-		m.err = errors.New("level phải là 0, 1 hoặc 2")
+	if m.level < 0 || m.level > 2 {
+		m.formError = "level_invalid"
 		return
 	}
-	if _, err := fmt.Sscanf(m.inputs[3].Value(), "%d", &workers); err != nil || workers < 0 {
-		m.err = errors.New("workers phải là số không âm")
+	workers, err := strconv.Atoi(strings.TrimSpace(m.inputs[2].Value()))
+	if err != nil || workers < 1 || workers > 64 {
+		m.formError = "workers_invalid"
 		return
 	}
 	kinds := [...]codec.Kind{codec.None, codec.LZ4, codec.LZ4HC}
-	m.job = core.Job{Mode: m.mode, Input: source, Output: strings.TrimSpace(m.inputs[1].Value()), Workers: workers, Kind: kinds[level], Forced: m.forced, DeleteOriginal: m.deleteOriginal, TrustCRC: m.trustCRC}
+	m.job = core.Job{Mode: m.mode, Input: source, Output: strings.TrimSpace(m.inputs[1].Value()), Workers: workers, Kind: kinds[m.level], Forced: m.forced, DeleteOriginal: m.deleteOriginal, TrustCRC: m.trustCRC}
 	ctx, cancel := context.WithCancel(context.Background())
 	m.cancel = cancel
 	events := make(chan core.Event, 32)
@@ -345,12 +432,12 @@ func (m Model) errorLines() []string {
 		lines = m.failures
 	} else {
 		if dropped := m.failureCount - len(m.recentFailures); dropped > 0 {
-			lines = append(lines, fmt.Sprintf("... và %d lỗi khác", dropped))
+			lines = append(lines, lang.T("dropped_errors", dropped))
 		}
 		lines = append(lines, m.recentFailures...)
 	}
 	if len(lines) == 0 {
-		lines = []string{"Không có lỗi."}
+		lines = []string{lang.T("empty_errors")}
 	}
 	return lines
 }
@@ -366,9 +453,9 @@ func (m *Model) saveFailures(path string) string {
 	}
 	path = filepath.Clean(path)
 	if err := os.WriteFile(path, []byte(data), 0644); err != nil {
-		return fmt.Sprintf("Không lưu được %s: %v", path, err)
+		return lang.T("save_error", path, err)
 	}
-	return fmt.Sprintf("Đã lưu %d lỗi vào %s", len(m.failures), path)
+	return lang.T("save_success", len(m.failures), path)
 }
 
 func isScrollKey(key string) bool {
@@ -381,7 +468,7 @@ func isScrollKey(key string) bool {
 }
 
 func (m Model) View() string {
-	title := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#7D5FFF")).Render("DVPL · bộ xử lý tệp")
+	title := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#7D5FFF")).Render(lang.T("app_title"))
 	var body string
 	switch m.screen {
 	case formScreen:
@@ -389,24 +476,30 @@ func (m Model) View() string {
 	case progressScreen:
 		elapsed := time.Since(m.started)
 		rate := float64(m.summary.Done) / max(elapsed.Seconds(), 0.001)
-		body = fmt.Sprintf("Đang xử lý\n\n%s\nDone: %d   Skipped: %d   Failed: %d   (%d / %d)\nTốc độ: %.1f tệp/s   Thời gian: %s\n\nLỗi\n%s\n\n↑/↓ PgUp/PgDn: cuộn · Esc: hủy · q / Ctrl+C: thoát", m.progress.View(), m.summary.Done, m.summary.Skipped, m.summary.Failed, m.processed, m.total, rate, elapsed.Round(time.Second), m.errorBox())
+		body = fmt.Sprintf("%s\n\n%s\n%s\n%s\n%s\n\n%s\n%s\n\n%s", lang.T("progress_title"), m.progress.View(), lang.T("counts", m.summary.Done, m.summary.Skipped, m.summary.Failed, m.processed, m.total), lang.T("rate", rate), lang.T("elapsed", elapsed.Round(time.Second)), lang.T("errors"), m.errorBox(), lang.T("progress_help"))
 	case resultScreen:
-		body = fmt.Sprintf("Kết quả\n\nSummary\nDone: %d   Skipped: %d   Failed: %d\nBytes in: %s   Bytes out: %s", m.summary.Done, m.summary.Skipped, m.summary.Failed, humanBytes(m.summary.BytesIn), humanBytes(m.summary.BytesOut))
+		body = fmt.Sprintf("%s\n\n%s\n%s\n%s\n%s", lang.T("result_title"), lang.T("summary"), lang.T("counts", m.summary.Done, m.summary.Skipped, m.summary.Failed, m.processed, m.total), lang.T("bytes_in", humanBytes(m.summary.BytesIn)), lang.T("bytes_out", humanBytes(m.summary.BytesOut)))
 		if m.err != nil && !errors.Is(m.err, core.ErrFilesFailed) {
-			body += "\nLỗi: " + m.err.Error()
+			body += "\n" + lang.T("error_prefix", m.err)
 		}
-		body += "\n\nLỗi\n" + m.errorBox()
+		body += "\n\n" + lang.T("errors") + "\n" + m.errorBox()
 		if m.saveMessage != "" {
 			body += "\n" + m.saveMessage
 		}
-		body += "\n\n↑/↓ PgUp/PgDn: cuộn · s: lưu errors.log · Enter/Esc: quay lại · q: thoát"
+		body += "\n\n" + lang.T("save_help")
 	}
 	return title + "\n\n" + body
 }
 
 func (m Model) formView() string {
-	items := []string{"Chế độ", "Nguồn", "Đích", "Level", "Workers", "Ép nén (-f)", "Xóa file gốc", "Bỏ qua CRC", "Bắt đầu"}
-	values := []string{map[core.Mode]string{core.Compress: "Nén", core.Decompress: "Giải nén"}[m.mode], m.inputs[0].View(), m.inputs[1].View(), m.inputs[2].View(), m.inputs[3].View(), check(m.forced), check(m.deleteOriginal), check(m.trustCRC), "▶"}
+	items := []string{lang.T("mode"), lang.T("source"), lang.T("destination"), lang.T("level"), lang.T("workers"), lang.T("force"), lang.T("delete_original"), lang.T("trust_crc"), lang.T("start")}
+	mode := lang.T("compress")
+	if m.mode == core.Decompress {
+		mode = lang.T("decompress")
+	}
+	level := min(2, max(0, m.level))
+	levelLabel := []string{lang.T("level_none"), lang.T("level_lz4"), lang.T("level_hc")}[level]
+	values := []string{mode, m.inputs[0].View(), m.inputs[1].View(), lang.T("level_choice", level, levelLabel), m.inputs[2].View(), check(m.forced), check(m.deleteOriginal), check(m.trustCRC), lang.T("start_symbol")}
 	var rows []string
 	for i, label := range items {
 		style := lipgloss.NewStyle()
@@ -415,43 +508,38 @@ func (m Model) formView() string {
 		}
 		rows = append(rows, style.Render(fmt.Sprintf("%-18s %s", label, values[i])))
 	}
-	view := strings.Join(rows, "\n") + "\n\nTab/mũi tên: chuyển · Enter: chọn · q: thoát"
-	if m.err != nil {
-		view += "\n\nLỗi: " + m.err.Error()
+	view := strings.Join(rows, "\n") + "\n\n" + lang.T("form_help")
+	if m.formError != "" {
+		view += "\n\n" + lang.T("error_prefix", lang.T(m.formError))
 	}
 	return view
 }
-func (m Model) errString() string {
-	if m.err != nil {
-		return m.err.Error()
-	}
-	return ""
-}
 func check(v bool) string {
 	if v {
-		return "[x]"
+		return lang.T("force_on")
 	}
-	return "[ ]"
+	return lang.T("force_off")
 }
 func humanBytes(n int64) string {
 	const unit = 1024
 	if n < unit {
-		return fmt.Sprintf("%d B", n)
+		return lang.T("unit_bytes", n)
 	}
 	div, exp := int64(unit), 0
 	for v := n / unit; v >= unit; v /= unit {
 		div *= unit
 		exp++
 	}
-	units := "KMGTPEZY"
-	if exp >= len(units) {
-		exp = len(units) - 1
+	keys := []string{"unit_kibi", "unit_mebi", "unit_gibi", "unit_tebi", "unit_pebi", "unit_exbi", "unit_zebi", "unit_yobi"}
+	if exp >= len(keys) {
+		exp = len(keys) - 1
 	}
-	return fmt.Sprintf("%.1f %ciB", float64(n)/float64(div), units[exp])
+	return lang.T(keys[exp], float64(n)/float64(div))
 }
 
 // Run starts the terminal program and waits for any canceled core worker to stop.
-func Run() error {
+func Run(locale string) error {
+	lang.Set(locale)
 	m := NewModel()
 	program := tea.NewProgram(m, tea.WithAltScreen())
 	final, err := program.Run()

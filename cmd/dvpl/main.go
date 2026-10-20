@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -128,15 +129,26 @@ func kindForLevel(level int) codec.Kind {
 
 func run(args []string, getenv func(string) string, stdout, stderr *os.File) int {
 	interactive := false
-	if len(args) == 1 && args[0] == "tui" {
+	tuiArgs := args
+	if len(args) > 0 && args[0] == "tui" {
 		interactive = true
+		tuiArgs = args[1:]
 	} else if len(args) == 0 {
+		if info, err := os.Stdin.Stat(); err == nil && info.Mode()&os.ModeCharDevice != 0 {
+			interactive = true
+		}
+	} else if args[0] == "--lang" || strings.HasPrefix(args[0], "--lang=") {
 		if info, err := os.Stdin.Stat(); err == nil && info.Mode()&os.ModeCharDevice != 0 {
 			interactive = true
 		}
 	}
 	if interactive {
-		if err := tui.Run(); err != nil {
+		uiLang, err := parseTUILanguage(tuiArgs, getenv)
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 2
+		}
+		if err := tui.Run(uiLang); err != nil {
 			fmt.Fprintln(stderr, err)
 			return 2
 		}
@@ -200,5 +212,28 @@ func run(args []string, getenv func(string) string, stdout, stderr *os.File) int
 		return 1
 	}
 	return 0
+}
+
+func parseTUILanguage(args []string, getenv func(string) string) (string, error) {
+	fs := flag.NewFlagSet("dvpl tui", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	value := fs.String("lang", "", "interface language: vi or en")
+	if err := fs.Parse(args); err != nil {
+		return "", err
+	}
+	if len(fs.Args()) != 0 {
+		return "", errors.New("unexpected arguments for TUI")
+	}
+	selected := strings.TrimSpace(*value)
+	if selected == "" {
+		selected = strings.TrimSpace(getenv("DVPL_LANG"))
+	}
+	if selected == "" {
+		selected = "vi"
+	}
+	if selected != "vi" && selected != "en" {
+		return "", errors.New("--lang and DVPL_LANG must be vi or en")
+	}
+	return selected, nil
 }
 func main() { os.Exit(run(os.Args[1:], os.Getenv, os.Stdout, os.Stderr)) }

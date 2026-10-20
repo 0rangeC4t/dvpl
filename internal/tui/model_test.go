@@ -4,10 +4,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
 	"dvpl/internal/core"
+	"dvpl/internal/tui/lang"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -15,8 +17,8 @@ func TestFormBuildsCoreJob(t *testing.T) {
 	m := NewModel()
 	m.inputs[0].SetValue("source")
 	m.inputs[1].SetValue("destination")
-	m.inputs[2].SetValue("1")
-	m.inputs[3].SetValue("6")
+	m.level = 1
+	m.inputs[2].SetValue("6")
 	m.mode = core.Decompress
 	m.forced, m.deleteOriginal, m.trustCRC = true, true, true
 	m.start()
@@ -28,6 +30,7 @@ func TestFormBuildsCoreJob(t *testing.T) {
 	}
 	if m.cancel != nil {
 		m.cancel()
+		<-m.done
 	}
 }
 
@@ -69,10 +72,105 @@ func TestSaveFailures(t *testing.T) {
 func TestFormRejectsInvalidOptions(t *testing.T) {
 	m := NewModel()
 	m.inputs[0].SetValue("source")
-	m.inputs[2].SetValue("3")
+	m.inputs[2].SetValue("65")
 	m.start()
-	if m.screen != formScreen || m.err == nil {
-		t.Fatal("invalid level should keep form open with an error")
+	if m.screen != formScreen || m.formError == "" {
+		t.Fatal("invalid workers should keep form open with an error")
+	}
+}
+
+func TestLevelKeysAndCoreOption(t *testing.T) {
+	lang.Set("vi")
+	t.Cleanup(func() { lang.Set("vi") })
+	m := NewModel()
+	if m.level != 2 {
+		t.Fatalf("default level=%d, want 2", m.level)
+	}
+	m.focus = 3
+	m.updateFormKey(tea.KeyMsg{Type: tea.KeyLeft})
+	if m.level != 1 {
+		t.Fatalf("left level=%d, want 1", m.level)
+	}
+	m.updateFormKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'0'}})
+	if m.level != 0 {
+		t.Fatalf("typed level=%d, want 0", m.level)
+	}
+	m.updateFormKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'+'}})
+	if m.level != 1 {
+		t.Fatalf("plus level=%d, want 1", m.level)
+	}
+	m.updateFormKey(tea.KeyMsg{Type: tea.KeyRight})
+	if m.level != 2 || !strings.Contains(m.formView(), "< 2 (HC) >") {
+		t.Fatalf("level view/value mismatch: %q", m.formView())
+	}
+	m.inputs[0].SetValue("source")
+	m.inputs[2].SetValue("4")
+	m.start()
+	if m.job.Kind != 2 {
+		t.Fatalf("core compression kind=%d, want 2", m.job.Kind)
+	}
+	if m.cancel != nil {
+		m.cancel()
+		<-m.done
+	}
+}
+
+func TestLanguageCanSwitchFromForm(t *testing.T) {
+	lang.Set("vi")
+	t.Cleanup(func() { lang.Set("vi") })
+	m := NewModel()
+	m.focus = 0
+	m.updateFormKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'l'}})
+	if lang.Current() != "en" || !strings.Contains(m.formView(), "Mode") {
+		t.Fatalf("language did not switch to English: %q", m.formView())
+	}
+	m.updateFormKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'l'}})
+	if lang.Current() != "vi" || !strings.Contains(m.formView(), "Chế độ") {
+		t.Fatalf("language did not switch back to Vietnamese: %q", m.formView())
+	}
+}
+
+func TestWorkersDefaultInputValidationAndCoreOption(t *testing.T) {
+	m := NewModel()
+	wantDefault := min(64, max(1, runtime.NumCPU()))
+	if got := m.inputs[2].Value(); got != fmt.Sprint(wantDefault) {
+		t.Fatalf("default workers=%q, want %d", got, wantDefault)
+	}
+	m.focus = 4
+	m.inputs[2].SetValue("")
+	m.updateFormKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
+	if m.formError == "" {
+		t.Fatal("invalid worker input should show an immediate error")
+	}
+	m.inputs[2].SetValue("7")
+	if !m.validateWorkers() {
+		t.Fatal("workers=7 should be valid")
+	}
+	m.updateFormKey(tea.KeyMsg{Type: tea.KeyRight})
+	if got := m.inputs[2].Value(); got != "8" {
+		t.Fatalf("workers plus key=%q, want 8", got)
+	}
+	m.updateFormKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'-'}})
+	if got := m.inputs[2].Value(); got != "7" {
+		t.Fatalf("workers minus key=%q, want 7", got)
+	}
+	m.inputs[0].SetValue("source")
+	m.start()
+	if m.screen != progressScreen || m.job.Workers != 7 {
+		t.Fatalf("screen=%d job workers=%d", m.screen, m.job.Workers)
+	}
+	if m.cancel != nil {
+		m.cancel()
+		<-m.done
+	}
+	for _, tc := range []struct {
+		value string
+		valid bool
+	}{{"1", true}, {"64", true}, {"0", false}, {"65", false}, {"2.5", false}, {"abc", false}} {
+		m.inputs[2].SetValue(tc.value)
+		if got := m.validateWorkers(); got != tc.valid {
+			t.Errorf("workers %q valid=%v, want %v", tc.value, got, tc.valid)
+		}
 	}
 }
 
