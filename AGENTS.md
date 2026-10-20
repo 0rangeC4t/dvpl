@@ -8,4 +8,4 @@
 - Keep originals by default. Write files atomically using a temporary file in the same directory followed by rename; one file's error must not stop a batch.
 - Generate test data in tests; never copy Tankerch's `test_files`.
 - Preserve licenses: Apache-2.0 and NOTICE (qirashi), MIT (Tankerch), BSD-3 (pierrec).
-- Plan: 1a library; 1b `internal/core`; 1c `cmd/dvpl`, README, LICENSE/NOTICE; step 2 cgo backend; step 3 TUI.
+- Progress: 1a library and 1b `internal/core` are present. Step 1c adds `cmd/dvpl`, README, LICENSE/NOTICE, and build targets. Step 2 cgo backend and step 3 TUI remain planned.
