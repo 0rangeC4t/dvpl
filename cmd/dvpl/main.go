@@ -14,6 +14,7 @@ import (
 
 	"dvpl/internal/codec"
 	"dvpl/internal/core"
+	"dvpl/internal/tui"
 )
 
 type config struct {
@@ -126,6 +127,21 @@ func kindForLevel(level int) codec.Kind {
 }
 
 func run(args []string, getenv func(string) string, stdout, stderr *os.File) int {
+	interactive := false
+	if len(args) == 1 && args[0] == "tui" {
+		interactive = true
+	} else if len(args) == 0 {
+		if info, err := os.Stdin.Stat(); err == nil && info.Mode()&os.ModeCharDevice != 0 {
+			interactive = true
+		}
+	}
+	if interactive {
+		if err := tui.Run(); err != nil {
+			fmt.Fprintln(stderr, err)
+			return 2
+		}
+		return 0
+	}
 	c, err := parseArgs(args, getenv)
 	if err != nil {
 		fmt.Fprintln(stderr, err)

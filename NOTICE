@@ -5,3 +5,5 @@ qirashi — Apache-2.0. The CLI and documentation were written anew with the qir
 Tankerch — MIT. Ideas and high-level structure were consulted as a reference; no source text was copied.
 
 github.com/pierrec/lz4/v4 — BSD-3-Clause. Used as the LZ4 block implementation dependency.
+
+Charmbracelet Bubble Tea, Bubbles, and Lip Gloss — MIT. Used for the interactive terminal interface. Copyright their respective authors; see the module source distributions for license texts.
