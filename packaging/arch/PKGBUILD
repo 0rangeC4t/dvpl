@@ -1,0 +1,52 @@
+# Maintainer: 0rangeC4t
+pkgname=dvpl-git
+_pkgname=dvpl
+pkgver=r11.590a706
+pkgrel=1
+pkgdesc='Compress and decompress .dvpl files (Dava Engine / WoT Blitz), CLI and TUI'
+arch=('x86_64' 'aarch64')
+url='https://github.com/0rangeC4t/dvpl'
+license=('Apache-2.0')
+depends=('hicolor-icon-theme')
+makedepends=('git' 'go')
+provides=("$_pkgname")
+source=("$_pkgname::git+$url.git"
+        'dvpl.desktop'
+        'dvpl.svg')
+sha256sums=('SKIP'
+            'SKIP'
+            'SKIP')
+
+pkgver() {
+  cd "$_pkgname"
+  printf 'r%s.%s' "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
+}
+
+prepare() {
+  cd "$_pkgname"
+  export GOFLAGS='-modcacherw'
+  go mod download
+}
+
+build() {
+  cd "$_pkgname"
+  export CGO_ENABLED=0
+  export GOFLAGS='-trimpath -mod=readonly -modcacherw'
+  go build -buildmode=pie -ldflags '-s -w' -o dvpl ./cmd/dvpl
+}
+
+check() {
+  cd "$_pkgname"
+  export CGO_ENABLED=0
+  export GOFLAGS='-mod=readonly -modcacherw'
+  go test ./...
+}
+
+package() {
+  install -Dm755 "$_pkgname/dvpl" "$pkgdir/usr/bin/dvpl"
+  install -Dm644 dvpl.desktop "$pkgdir/usr/share/applications/dvpl.desktop"
+  install -Dm644 dvpl.svg "$pkgdir/usr/share/icons/hicolor/scalable/apps/dvpl.svg"
+  install -Dm644 "$_pkgname/LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 "$_pkgname/NOTICE" "$pkgdir/usr/share/licenses/$pkgname/NOTICE"
+  install -Dm644 "$_pkgname/README.md" "$pkgdir/usr/share/doc/$pkgname/README.md"
+}

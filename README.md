@@ -1,116 +1,65 @@
 # DVPL
 
-A Go command-line tool to compress and decompress `.dvpl` files (the Dava Engine format used by World of Tanks Blitz), with a terminal UI (TUI). Vietnamese: [README.md](README.md).
+# DVPL
 
-## Install
+Công cụ Go thuần để nén/giải nén DVPL, gồm CLI và TUI Bubble Tea trong cùng binary. Cài Go 1.22+ hoặc tải binary phù hợp trong `dist/`.
 
-Requires Go 1.22 or newer.
-
-```sh
-git clone https://github.com/0rangeC4t/dvpl.git
-cd dvpl
-go build -o dvpl ./cmd/dvpl     # build for this machine
-make build                      # cross-platform builds into dist/
-```
-
-`make build` produces `dist/dvpl-linux-amd64`, `dist/dvpl-linux-arm64`, `dist/dvpl-windows-amd64.exe` and `dist/dvpl-linux-amd64-purego`.
-
-Both build modes (`cgo` and `purego`) currently use the same pure Go backend (`pierrec/lz4`). A separate cgo backend is planned.
-
-## Usage
-
-```sh
-dvpl compress -level 2 assets/          # compress a directory
-dvpl decompress assets.dvpl             # decompress one file
-dvpl c -o output/ -filter '*.png,*.json' assets/
-dvpl input.txt                          # compresses; a .dvpl file is decompressed
-dvpl tui                                # terminal UI
-```
-
-Running `dvpl` with no arguments in an interactive terminal also opens the TUI. `c`/`d` and `compress`/`decompress` (plus the aliases `encrypt`/`decrypt`) are equivalent. **Flags must come before the path.**
-
-| Flag | Default | Meaning |
-|---|---:|---|
-| `-o` | next to input | Output directory (subdirectory layout is preserved) |
-| `-level` | `2` | `0` store, `1` LZ4, `2` LZ4HC |
-| `-f` | off | Keep the chosen compression type even if the result is not smaller |
-| `-filter` | — | Only process files whose name matches a pattern (comma separated) |
-| `-ignore` | — | Skip files whose name matches a pattern |
-| `-ignore-compress` | — | Store matching files without compression |
-| `-workers` | `2` | Number of workers, capped at the CPU count |
-| `-trust-crc` | off | Skip CRC verification when decompressing (prints a warning) |
-| `-delete-original` | off | Delete the source file after a successful conversion |
-| `-q`, `-v` | off | Quiet per-file output / verbose byte counts |
-
-Patterns match the **file name** (not the path) using `filepath.Match` syntax. Existing output files are overwritten.
-
-| Environment variable | Meaning |
+| Nền tảng | Binary |
 |---|---|
-| `DVPL_LEVEL` | Compression level `0`–`2`; the `-level` flag takes priority |
-| `DVPL_WORKERS` | Positive worker count; the `-workers` flag takes priority |
-| `DVPL_LANG` | TUI language: `vi` or `en` |
+| Linux x86-64 | `dvpl-linux-amd64` |
+| Linux ARM64 | `dvpl-linux-arm64` |
+| Windows 64-bit | `dvpl-windows-amd64.exe` |
+| Windows 32-bit | `dvpl-windows-386.exe` |
 
-Exit codes: `0` success, `1` some files failed, `2` configuration/argument error, `130` interrupted. One failing file does not stop the batch.
+Build đủ bản bằng `make build VERSION=1.0.0`; tạo SHA256 bằng `make checksums VERSION=1.0.0`. Tất cả bản phát hành đặt `CGO_ENABLED=0`. Bản purego tùy chọn: `CGO_ENABLED=0 go build -tags purego ./cmd/dvpl`.
 
-## Data safety
-
-- Originals are **kept by default**; they are deleted only with `-delete-original`.
-- Files are written to a `*.dvpltmp` temporary file in the same directory and then renamed, so output is never half-written.
-- Symlinks are skipped. A warning is printed if the output directory is inside the input directory.
-- Magic, sizes and the payload CRC32 are checked when decompressing.
-
-## TUI
-
-**How to open it:**
+Windows: SmartScreen có thể cảnh báo binary chưa ký. Chạy từ Windows Terminal hoặc PowerShell để dùng TUI; tiếng Việt cần terminal hỗ trợ UTF-8.
 
 ```sh
-dvpl                  # no arguments, in an interactive terminal
-dvpl tui              # always opens the TUI
-dvpl tui --lang en    # open in English
-dvpl --lang en        # also opens the TUI (when run in an interactive terminal)
-./dist/dvpl-linux-amd64 tui    # if you run a build from dist/
+dvpl compress -level 2 assets/
+dvpl decompress assets.dvpl
+dvpl c -o output/ -filter '*.png,*.json' assets/
+dvpl input.txt # tự nén; file có đuôi .dvpl được tự giải nén
+dvpl tui      # giao diện tương tác trên terminal
 ```
 
-`dvpl` with no arguments opens the TUI only when input is a real terminal; in a pipe or script it reports a missing path (exit code `2`), so use `dvpl tui` to be sure.
+Không truyền tham số trong terminal tương tác cũng mở TUI. Giao diện có form nén/giải nén, trình duyệt đường dẫn, tiến trình có ETA và màn hình lỗi. Bảng phím:
 
-Pick compress/decompress, enter source and destination, set the level `0/1/2` (left/right, `+/-` or type a number), workers (defaults to the CPU count; 1 to 64 can be entered but the effective value is capped at the CPU count), and the keep/delete original, force and trust-crc options. The progress screen shows a progress bar, counters, speed and elapsed time; the scrollable error pane keeps the last 500 errors. On the result screen press `s` to save the error list to `errors.log`.
+| Phím | Form | Trình duyệt | Tiến trình / Kết quả |
+|---|---|---|---|
+| `Tab` / `↓` | Chuyển đến trường tiếp theo | Chọn mục tiếp theo | — |
+| `Shift+Tab` / `↑` | Chuyển về trường trước | Chọn mục trước | Cuộn lỗi lên |
+| `←` / `→` | Đổi Mode, Level hoặc Workers tùy trường | — | — |
+| `+` / `-` | Tăng/giảm Level hoặc Workers | — | — |
+| `Space` | Bật/tắt tùy chọn | Chọn thư mục hiện tại | — |
+| `Enter` | Chọn trường hoặc bắt đầu | Vào thư mục / chọn tệp | Kết quả: quay lại form |
+| `Backspace` | — | Lên thư mục cha; ở gốc Windows hiện danh sách ổ đĩa | — |
+| `Esc` | Lùi focus | Đóng trình duyệt | Tiến trình: hủy an toàn; kết quả: về form |
+| `L` | Đổi tiếng Việt/Anh | — | — |
+| `PgUp` / `PgDn` | — | — | Cuộn danh sách lỗi |
+| `s` | — | — | Kết quả: lưu `errors.log` |
+| `q` / `Ctrl+C` | Thoát | Đóng TUI | Thoát; tác vụ đang chạy được hủy |
 
-The UI defaults to Vietnamese. Switch with `dvpl tui --lang en`, `DVPL_LANG=en`, or the `L` key in the form. Use Tab/arrows to move, Enter to select, Esc to go back/cancel, `q` or Ctrl+C to quit.
+TUI có các tùy chọn giữ/xóa file gốc, force và trust-CRC. Màn hình tiến trình hiển thị thanh tiến độ, số file, tốc độ, thời gian đã chạy và ETA. Khung lỗi giữ 500 lỗi gần nhất; màn hình kết quả hiển thị danh sách đầy đủ. Giao diện mặc định tiếng Việt; dùng `dvpl tui --lang en`, `DVPL_LANG=en` hoặc nhấn `L` để chọn tiếng Anh. Các lệnh `c`/`d` và `compress`/`decompress` vẫn dùng được như trước.
 
-To add a language, create `internal/tui/lang/<code>.json` with the same keys as `vi.json` and `en.json` (JSON files are embedded automatically), add the code to `lang.Set`/`lang.Other` and to the `--lang`/`DVPL_LANG` check in the CLI, then update the key-parity test.
+Để thêm ngôn ngữ, tạo `internal/tui/lang/<mã>.json` với cùng tập key như `vi.json` và `en.json`. Các file JSON được nhúng tự động. Thêm mã ngôn ngữ vào `lang.Set`/`lang.Other` và phần kiểm tra `--lang`/`DVPL_LANG` trong CLI; cập nhật test đối chiếu key để kiểm tra file mới.
 
-## DVPL format
+| Cờ | Mặc định | Ý nghĩa |
+|---|---:|---|
+| `-o` | cạnh input | Thư mục đầu ra; muốn tên file khác thì đổi tên sau khi xử lý |
+| `-level` | `2` | `0` không nén, `1` LZ4, `2` LZ4HC |
+| `-f` | tắt | Ép nén |
+| `-filter`, `-ignore`, `-ignore-compress` | — | Mẫu tên file, phân cách bằng dấu phẩy |
+| `-workers` | tự chọn | Số worker |
+| `-trust-crc` | tắt | Bỏ kiểm tra CRC (có cảnh báo) |
+| `-delete-original` | tắt | Xóa file gốc sau khi xử lý thành công |
+| `-q`, `-v` | tắt | Im lặng theo file / hiện chi tiết byte |
 
-```
-[payload (compressed or raw)][20-byte footer, little-endian]
+| Biến môi trường | Ý nghĩa |
+|---|---|
+| `DVPL_LEVEL` | Mức nén `0`–`2`; cờ `-level` được ưu tiên |
+| `DVPL_WORKERS` | Số worker dương; cờ `-workers` được ưu tiên |
 
-footer:
-  uint32  original size
-  uint32  payload size
-  uint32  CRC32 (IEEE) of the payload
-  uint32  compression type
-  4 bytes "DVPL"
-```
+Khi giải nén, type `0` là dữ liệu thô, type `1` và `2` là khối LZ4, type `4` là một khối LZ4 có header 28 byte. Type `4` bỏ qua CRC của payload và hiện chỉ hỗ trợ đọc; chương trình không tạo file type `4`.
 
-| Type | Meaning | Read | Write |
-|---:|---|:--:|:--:|
-| `0` | stored | yes | yes |
-| `1` | LZ4 block | yes | yes |
-| `2` | LZ4HC block | yes | yes |
-| `4` | single LZ4 block with a 28-byte header, payload CRC ignored | yes | no |
-
-Any other value is rejected. If compression does not make the file smaller (and `-f` is not set) the tool writes type `0`. The size limit is `0x7E000000` bytes. The type labels in the footer have not been verified against real game files.
-
-## Tests
-
-```sh
-go test ./...
-go test -tags purego ./...
-```
-
-## License and credits
-
-Apache-2.0, see `LICENSE` and `NOTICE`. The project consulted [qirashi/dvpl_go](https://github.com/qirashi/dvpl_go) (Apache-2.0) and [Tankerch/dvpl_converter](https://github.com/Tankerch/dvpl_converter) (MIT) as references; no source text was copied. Dependencies: [pierrec/lz4](https://github.com/pierrec/lz4) (BSD-3-Clause), and Charmbracelet's Bubble Tea, Bubbles and Lip Gloss (MIT).
-
-This is an unofficial community tool and i
-s not affiliated with Wargaming.
+Mã thoát: `0` thành công, `1` có file lỗi, `2` lỗi cấu hình/đối số, `130` khi bị ngắt. Mặc định chương trình giữ file gốc. Symlink bị bỏ qua. Nhãn type trong footer chưa được xác minh bằng file game thật.

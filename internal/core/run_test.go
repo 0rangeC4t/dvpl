@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -193,6 +194,62 @@ func TestValidationAndCancellation(t *testing.T) {
 		t.Fatalf("got %v", err)
 	}
 	noTemps(t, root)
+}
+
+func TestCancellationDuringBatchLeavesNoTemporaryFiles(t *testing.T) {
+	root := t.TempDir()
+	src, out := filepath.Join(root, "src"), filepath.Join(root, "out")
+	for i := 0; i < 100; i++ {
+		put(t, filepath.Join(src, fmt.Sprintf("%03d.txt", i)), data(100))
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	events := make(chan Event)
+	go func() {
+		for ev := range events {
+			if ev.Type == FileDone {
+				cancel()
+			}
+		}
+	}()
+	err := Run(ctx, Job{Mode: Compress, Input: src, Output: out, Workers: 2, Kind: codec.LZ4HC}, events)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Run error=%v, want cancellation", err)
+	}
+	noTemps(t, root)
+	entries, err := os.ReadDir(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if strings.HasSuffix(entry.Name(), ".dvpltmp") {
+			t.Fatalf("partial temporary output remains: %s", entry.Name())
+		}
+		packed := read(t, filepath.Join(out, entry.Name()))
+		if len(packed) < 20 || string(packed[len(packed)-4:]) != "DVPL" {
+			t.Fatalf("published incomplete output %s", entry.Name())
+		}
+	}
+}
+
+func TestAtomicWriteReplacesExistingDestination(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "already.dvpl")
+	put(t, path, []byte("old contents"))
+	if err := atomicWrite(path, []byte("new contents")); err != nil {
+		t.Fatal(err)
+	}
+	if got := string(read(t, path)); got != "new contents" {
+		t.Fatalf("destination=%q", got)
+	}
+	noTemps(t, filepath.Dir(path))
+}
+
+func TestSummaryByteCountersSupportValuesBeyond32Bit(t *testing.T) {
+	const large int64 = 1<<33 + 123
+	var summary Summary
+	summary.addBytes(large, large+1)
+	if summary.BytesIn != large || summary.BytesOut != large+1 {
+		t.Fatalf("summary byte counters=%d/%d", summary.BytesIn, summary.BytesOut)
+	}
 }
 
 func TestEventsNotDroppedWithSlowReceiver(t *testing.T) {

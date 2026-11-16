@@ -18,6 +18,8 @@ import (
 	"dvpl/internal/tui"
 )
 
+var version = "dev"
+
 type config struct {
 	mode                                             core.Mode
 	input, output                                    string
@@ -128,7 +130,12 @@ func kindForLevel(level int) codec.Kind {
 }
 
 func run(args []string, getenv func(string) string, stdout, stderr *os.File) int {
+	if len(args) == 1 && args[0] == "--version" {
+		fmt.Fprintln(stdout, version)
+		return 0
+	}
 	interactive := false
+	source := ""
 	tuiArgs := args
 	if len(args) > 0 && args[0] == "tui" {
 		interactive = true
@@ -142,13 +149,25 @@ func run(args []string, getenv func(string) string, stdout, stderr *os.File) int
 			interactive = true
 		}
 	}
+	if len(args) > 0 && !interactive {
+		if info, e := os.Stdin.Stat(); e == nil && info.Mode()&os.ModeCharDevice == 0 {
+			if _, e := os.Stat(args[0]); e == nil {
+				interactive, source = true, args[0]
+			}
+		}
+	}
+	if len(args) == 0 {
+		if info, e := os.Stdin.Stat(); e == nil && info.Mode()&os.ModeCharDevice == 0 {
+			interactive = true
+		}
+	}
 	if interactive {
 		uiLang, err := parseTUILanguage(tuiArgs, getenv)
 		if err != nil {
 			fmt.Fprintln(stderr, err)
 			return 2
 		}
-		if err := tui.Run(uiLang); err != nil {
+		if err := tui.RunWithSource(uiLang, source); err != nil {
 			fmt.Fprintln(stderr, err)
 			return 2
 		}

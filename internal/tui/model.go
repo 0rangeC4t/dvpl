@@ -55,6 +55,7 @@ type Model struct {
 	progress                         progress.Model
 	err                              error
 	formError                        string
+	browser                          *fileBrowser
 	width                            int
 	height                           int
 }
@@ -71,7 +72,13 @@ func NewModel() Model {
 	}
 	workers := min(64, max(1, runtime.NumCPU()))
 	inputs[2].SetValue(strconv.Itoa(workers))
-	return Model{initialized: true, inputs: inputs, level: 2, locale: lang.Current(), progress: progress.New(progress.WithDefaultGradient()), errorViewport: viewport.New(72, 6), width: 80}
+	m := Model{initialized: true, inputs: inputs, level: 2, locale: "vi", progress: progress.New(progress.WithDefaultGradient()), errorViewport: viewport.New(72, 6), width: 80}
+	m.loadConfig()
+	lang.Set(m.locale)
+	m.inputs[0].Placeholder = lang.T("source_placeholder")
+	m.inputs[1].Placeholder = lang.T("destination_placeholder")
+	m.inputs[2].Placeholder = lang.T("workers_placeholder")
+	return m
 }
 
 func (m Model) Init() tea.Cmd { return textinput.Blink }
@@ -112,7 +119,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if !m.initialized {
 		m = NewModel()
 	}
-	if m.focus < 0 || m.focus >= 9 {
+	if m.focus < 0 || m.focus >= 11 {
 		m.focus = 0
 	}
 	switch msg := msg.(type) {
@@ -122,7 +129,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.progress.Width = max(10, msg.Width-8)
 		m.resizeErrorViewport()
 	case tea.KeyMsg:
+		if m.browser != nil {
+			m.updateBrowserKey(msg)
+			return m, nil
+		}
 		if msg.String() == "ctrl+c" || (msg.String() == "q" && !(m.screen == formScreen && isTextFocus(m.focus))) {
+			if m.screen == formScreen {
+				m.saveConfig()
+			}
 			if m.cancel != nil {
 				m.cancel()
 			}
@@ -229,6 +243,7 @@ func (m *Model) updateFormKey(msg tea.KeyMsg) tea.Cmd {
 		m.inputs[0].Placeholder = lang.T("source_placeholder")
 		m.inputs[1].Placeholder = lang.T("destination_placeholder")
 		m.inputs[2].Placeholder = lang.T("workers_placeholder")
+		m.saveConfig()
 		return nil
 	}
 	if m.focus == 3 {
@@ -267,9 +282,9 @@ func (m *Model) updateFormKey(msg tea.KeyMsg) tea.Cmd {
 	}
 	switch key {
 	case "tab", "down":
-		m.focus = (m.focus + 1) % 9
+		m.focus = (m.focus + 1) % 11
 	case "shift+tab", "up":
-		m.focus = (m.focus + 8) % 9
+		m.focus = (m.focus + 10) % 11
 	case "enter":
 		if m.focus >= 1 && m.focus <= 4 {
 			m.focus++
@@ -292,6 +307,8 @@ func (m *Model) updateFormKey(msg tea.KeyMsg) tea.Cmd {
 				if m.screen == progressScreen {
 					return tea.Batch(readEvent(m.events, m.done), tick())
 				}
+			case 9, 10:
+				m.openBrowser(m.focus - 9)
 			}
 		}
 	case "left", "right", " ":
@@ -378,6 +395,7 @@ func (m *Model) start() {
 		m.formError = "workers_invalid"
 		return
 	}
+	m.saveConfig()
 	kinds := [...]codec.Kind{codec.None, codec.LZ4, codec.LZ4HC}
 	m.job = core.Job{Mode: m.mode, Input: source, Output: strings.TrimSpace(m.inputs[1].Value()), Workers: workers, Kind: kinds[m.level], Forced: m.forced, DeleteOriginal: m.deleteOriginal, TrustCRC: m.trustCRC}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -395,6 +413,17 @@ func (m Model) percent() float64 {
 		return 0
 	}
 	return float64(m.processed) / float64(m.total)
+}
+
+func estimatedRemaining(elapsed time.Duration, processed, total int) time.Duration {
+	if processed <= 0 || total <= processed {
+		return 0
+	}
+	remaining := elapsed.Seconds() * float64(total-processed) / float64(processed)
+	if remaining < 0 {
+		return 0
+	}
+	return time.Duration(remaining * float64(time.Second))
 }
 
 func (m *Model) addFailure(line string) {
@@ -472,11 +501,19 @@ func (m Model) View() string {
 	var body string
 	switch m.screen {
 	case formScreen:
-		body = m.formView()
+		if m.browser != nil {
+			body = m.browserView()
+		} else {
+			body = m.formView()
+		}
 	case progressScreen:
 		elapsed := time.Since(m.started)
 		rate := float64(m.summary.Done) / max(elapsed.Seconds(), 0.001)
-		body = fmt.Sprintf("%s\n\n%s\n%s\n%s\n%s\n\n%s\n%s\n\n%s", lang.T("progress_title"), m.progress.View(), lang.T("counts", m.summary.Done, m.summary.Skipped, m.summary.Failed, m.processed, m.total), lang.T("rate", rate), lang.T("elapsed", elapsed.Round(time.Second)), lang.T("errors"), m.errorBox(), lang.T("progress_help"))
+		eta := lang.T("eta_unknown")
+		if m.processed > 0 {
+			eta = lang.T("eta", estimatedRemaining(elapsed, m.processed, m.total).Round(time.Second))
+		}
+		body = fmt.Sprintf("%s\n\n%s\n%s\n%s\n%s\n%s\n\n%s\n%s\n\n%s", lang.T("progress_title"), m.progress.View(), lang.T("counts", m.summary.Done, m.summary.Skipped, m.summary.Failed, m.processed, m.total), lang.T("rate", rate), lang.T("elapsed", elapsed.Round(time.Second)), eta, lang.T("errors"), m.errorBox(), lang.T("progress_help"))
 	case resultScreen:
 		body = fmt.Sprintf("%s\n\n%s\n%s\n%s\n%s", lang.T("result_title"), lang.T("summary"), lang.T("counts", m.summary.Done, m.summary.Skipped, m.summary.Failed, m.processed, m.total), lang.T("bytes_in", humanBytes(m.summary.BytesIn)), lang.T("bytes_out", humanBytes(m.summary.BytesOut)))
 		if m.err != nil && !errors.Is(m.err, core.ErrFilesFailed) {
@@ -492,14 +529,14 @@ func (m Model) View() string {
 }
 
 func (m Model) formView() string {
-	items := []string{lang.T("mode"), lang.T("source"), lang.T("destination"), lang.T("level"), lang.T("workers"), lang.T("force"), lang.T("delete_original"), lang.T("trust_crc"), lang.T("start")}
+	items := []string{lang.T("mode"), lang.T("source"), lang.T("destination"), lang.T("level"), lang.T("workers"), lang.T("force"), lang.T("delete_original"), lang.T("trust_crc"), lang.T("start"), lang.T("browse_source"), lang.T("browse_destination")}
 	mode := lang.T("compress")
 	if m.mode == core.Decompress {
 		mode = lang.T("decompress")
 	}
 	level := min(2, max(0, m.level))
 	levelLabel := []string{lang.T("level_none"), lang.T("level_lz4"), lang.T("level_hc")}[level]
-	values := []string{mode, m.inputs[0].View(), m.inputs[1].View(), lang.T("level_choice", level, levelLabel), m.inputs[2].View(), check(m.forced), check(m.deleteOriginal), check(m.trustCRC), lang.T("start_symbol")}
+	values := []string{mode, m.inputs[0].View(), m.inputs[1].View(), lang.T("level_choice", level, levelLabel), m.inputs[2].View(), check(m.forced), check(m.deleteOriginal), check(m.trustCRC), lang.T("start_symbol"), "…", "…"}
 	var rows []string
 	for i, label := range items {
 		style := lipgloss.NewStyle()
@@ -539,8 +576,21 @@ func humanBytes(n int64) string {
 
 // Run starts the terminal program and waits for any canceled core worker to stop.
 func Run(locale string) error {
-	lang.Set(locale)
+	return RunWithSource(locale, "")
+}
+
+func RunWithSource(locale, source string) error {
 	m := NewModel()
+	if locale == "vi" || locale == "en" {
+		m.locale = locale
+	}
+	lang.Set(m.locale)
+	m.inputs[0].Placeholder = lang.T("source_placeholder")
+	m.inputs[1].Placeholder = lang.T("destination_placeholder")
+	m.inputs[2].Placeholder = lang.T("workers_placeholder")
+	if source != "" {
+		m.inputs[0].SetValue(source)
+	}
 	program := tea.NewProgram(m, tea.WithAltScreen())
 	final, err := program.Run()
 	if model, ok := final.(Model); ok && model.cancel != nil {

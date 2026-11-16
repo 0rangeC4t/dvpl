@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <title>DVPL</title>
+  <rect width="128" height="128" rx="26" fill="#2d353b"/>
+  <path d="M38 22H72L90 40V106H38Z" fill="#d3c6aa"/>
+  <path d="M72 22V40H90Z" fill="#a69d86"/>
+  <rect x="47" y="54" width="34" height="6" rx="3" fill="#2d353b"/>
+  <rect x="47" y="67" width="34" height="6" rx="3" fill="#2d353b"/>
+  <rect x="47" y="80" width="22" height="6" rx="3" fill="#2d353b"/>
+  <g fill="none" stroke="#a7c080" stroke-width="8" stroke-linecap="round" stroke-linejoin="round">
+    <polyline points="14,50 27,64 14,78"/>
+    <polyline points="114,50 101,64 114,78"/>
+  </g>
+</svg>

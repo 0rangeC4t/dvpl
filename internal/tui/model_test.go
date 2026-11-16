@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"dvpl/internal/core"
 	"dvpl/internal/tui/lang"
@@ -14,6 +15,7 @@ import (
 )
 
 func TestFormBuildsCoreJob(t *testing.T) {
+	isolateUserConfig(t)
 	m := NewModel()
 	m.inputs[0].SetValue("source")
 	m.inputs[1].SetValue("destination")
@@ -35,6 +37,7 @@ func TestFormBuildsCoreJob(t *testing.T) {
 }
 
 func TestFailureListsKeepRecentWindowAndFullResult(t *testing.T) {
+	isolateUserConfig(t)
 	m := NewModel()
 	m.screen = progressScreen
 	for i := 1; i <= 510; i++ {
@@ -54,6 +57,7 @@ func TestFailureListsKeepRecentWindowAndFullResult(t *testing.T) {
 }
 
 func TestSaveFailures(t *testing.T) {
+	isolateUserConfig(t)
 	m := NewModel()
 	m.addFailure("asset.dvpl: unsupported type 3")
 	path := filepath.Join(t.TempDir(), "errors.log")
@@ -70,6 +74,7 @@ func TestSaveFailures(t *testing.T) {
 }
 
 func TestFormRejectsInvalidOptions(t *testing.T) {
+	isolateUserConfig(t)
 	m := NewModel()
 	m.inputs[0].SetValue("source")
 	m.inputs[2].SetValue("65")
@@ -80,6 +85,7 @@ func TestFormRejectsInvalidOptions(t *testing.T) {
 }
 
 func TestLevelKeysAndCoreOption(t *testing.T) {
+	isolateUserConfig(t)
 	lang.Set("vi")
 	t.Cleanup(func() { lang.Set("vi") })
 	m := NewModel()
@@ -116,8 +122,7 @@ func TestLevelKeysAndCoreOption(t *testing.T) {
 }
 
 func TestLanguageCanSwitchFromForm(t *testing.T) {
-	lang.Set("vi")
-	t.Cleanup(func() { lang.Set("vi") })
+	isolateUserConfig(t)
 	m := NewModel()
 	m.focus = 0
 	m.updateFormKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'l'}})
@@ -131,6 +136,7 @@ func TestLanguageCanSwitchFromForm(t *testing.T) {
 }
 
 func TestWorkersDefaultInputValidationAndCoreOption(t *testing.T) {
+	isolateUserConfig(t)
 	m := NewModel()
 	wantDefault := min(64, max(1, runtime.NumCPU()))
 	if got := m.inputs[2].Value(); got != fmt.Sprint(wantDefault) {
@@ -185,16 +191,32 @@ func TestProgressAndHumanBytes(t *testing.T) {
 	_ = humanBytes(int64(^uint64(0) >> 1))
 }
 
+func TestEstimatedRemaining(t *testing.T) {
+	if got := estimatedRemaining(10*time.Second, 2, 6); got != 20*time.Second {
+		t.Fatalf("ETA=%s, want 20s", got)
+	}
+	for _, tc := range []struct {
+		elapsed     time.Duration
+		done, total int
+	}{{time.Second, 0, 10}, {time.Second, 10, 10}, {time.Second, 2, 2}} {
+		if got := estimatedRemaining(tc.elapsed, tc.done, tc.total); got != 0 {
+			t.Errorf("ETA(%d/%d)=%s, want 0", tc.done, tc.total, got)
+		}
+	}
+}
+
 func TestInvalidFocusIsResetBeforeUpdate(t *testing.T) {
+	isolateUserConfig(t)
 	m := NewModel()
 	m.focus = -1
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyUp})
-	if got := updated.(Model).focus; got < 0 || got >= 9 {
+	if got := updated.(Model).focus; got < 0 || got >= 11 {
 		t.Fatalf("focus=%d outside selectable range", got)
 	}
 }
 
 func TestUpdateBoundsAcrossScreensAndKeys(t *testing.T) {
+	isolateUserConfig(t)
 	keys := []tea.KeyMsg{
 		{Type: tea.KeyUp},
 		{Type: tea.KeyDown},
@@ -209,6 +231,7 @@ func TestUpdateBoundsAcrossScreensAndKeys(t *testing.T) {
 	screens := []screen{formScreen, progressScreen, resultScreen}
 	for _, screen := range screens {
 		t.Run(fmt.Sprintf("screen-%d", screen), func(t *testing.T) {
+			isolateUserConfig(t)
 			m := NewModel()
 			updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 			m = updated.(Model)
@@ -222,6 +245,7 @@ func TestUpdateBoundsAcrossScreensAndKeys(t *testing.T) {
 }
 
 func TestZeroModelWindowSizeAndKeysDoNotPanic(t *testing.T) {
+	isolateUserConfig(t)
 	var m Model
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = updated.(Model)

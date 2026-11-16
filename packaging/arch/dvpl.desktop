@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=DVPL
+Name[vi]=DVPL
+Comment=Compress and decompress .dvpl files (Dava Engine / WoT Blitz)
+Comment[vi]=Nén và giải nén file .dvpl (Dava Engine / WoT Blitz)
+Exec=dvpl tui
+Icon=dvpl
+Terminal=true
+Categories=Utility;Archiving;Compression;
+Keywords=lz4;blitz;wotb;compress;

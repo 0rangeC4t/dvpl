@@ -11,3 +11,7 @@ dist/
 dist/
 errors.log
 *.dvpl
+/packaging/arch/src/
+/packaging/arch/pkg/
+/packaging/arch/dvpl/
+*.pkg.tar.zst

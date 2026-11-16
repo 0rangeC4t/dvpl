@@ -49,6 +49,11 @@ type Summary struct {
 	BytesIn, BytesOut     int64
 }
 
+func (s *Summary) addBytes(in, out int64) {
+	s.BytesIn += in
+	s.BytesOut += out
+}
+
 var ErrFilesFailed = errors.New("one or more files failed")
 
 func validateJob(job Job) error {
@@ -137,8 +142,7 @@ func Run(ctx context.Context, job Job, events chan<- Event) error {
 				ev.Type = FileSkipped
 			} else {
 				sum.Done++
-				sum.BytesIn += outcome.result.inBytes
-				sum.BytesOut += outcome.result.outBytes
+				sum.addBytes(outcome.result.inBytes, outcome.result.outBytes)
 				ev.Type = FileDone
 				ev.BytesIn = outcome.result.inBytes
 				ev.BytesOut = outcome.result.outBytes
