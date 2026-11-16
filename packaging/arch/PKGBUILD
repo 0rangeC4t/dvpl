@@ -1,7 +1,7 @@
 # Maintainer: 0rangeC4t
 pkgname=dvpl-git
 _pkgname=dvpl
-pkgver=r11.590a706
+pkgver=r12.fa24711
 pkgrel=1
 pkgdesc='Compress and decompress .dvpl files (Dava Engine / WoT Blitz), CLI and TUI'
 arch=('x86_64' 'aarch64')
